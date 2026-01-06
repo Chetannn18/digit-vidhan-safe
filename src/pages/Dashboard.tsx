@@ -10,6 +10,7 @@ import ThemeToggle from "@/components/ThemeToggle";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
+import VoteReceipt from "@/components/VoteReceipt";
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -26,6 +27,13 @@ const Dashboard = () => {
   const [hasVoted, setHasVoted] = useState(false);
   const [loadingCandidates, setLoadingCandidates] = useState(false);
   const [submittingVote, setSubmittingVote] = useState(false);
+  const [showReceipt, setShowReceipt] = useState(false);
+  const [voteConfirmation, setVoteConfirmation] = useState<{
+    confirmationId: string;
+    votedAt: Date;
+    candidateName: string;
+    partyName: string;
+  } | null>(null);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -201,6 +209,10 @@ const Dashboard = () => {
     setSubmittingVote(true);
     try {
       const id = selectedElection.id;
+      const votedAt = new Date();
+      const confirmationId = `BV-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+      const selectedCandidateData = candidates.find(c => c.id === selectedCandidate);
+      
       if (id?.toString().startsWith("demo-")) {
         const demoVotesRaw = localStorage.getItem("demo_votes");
         const votes = demoVotesRaw ? JSON.parse(demoVotesRaw) : [];
@@ -209,25 +221,29 @@ const Dashboard = () => {
           voter_id: user!.id,
           election_id: id,
           candidate_id: selectedCandidate,
-          voted_at: new Date().toISOString(),
+          voted_at: votedAt.toISOString(),
         };
         votes.push(newVote);
         localStorage.setItem("demo_votes", JSON.stringify(votes));
-        toast({ title: "Vote submitted", description: "Thank you for voting!" });
-        setHasVoted(true);
-        setCandidateDialogOpen(false);
-        return;
+      } else {
+        const { error } = await supabase.from("votes").insert({
+          voter_id: user!.id,
+          election_id: id,
+          candidate_id: selectedCandidate,
+        });
+        if (error) throw error;
       }
-
-      const { error } = await supabase.from("votes").insert({
-        voter_id: user!.id,
-        election_id: id,
-        candidate_id: selectedCandidate,
+      
+      setVoteConfirmation({
+        confirmationId,
+        votedAt,
+        candidateName: selectedCandidateData?.name || "Unknown",
+        partyName: selectedCandidateData?.party_name || "Unknown",
       });
-      if (error) throw error;
-      toast({ title: "Vote submitted", description: "Thank you for voting!" });
       setHasVoted(true);
       setCandidateDialogOpen(false);
+      setShowReceipt(true);
+      toast({ title: "Vote submitted", description: "Thank you for voting!" });
     } catch (err: any) {
       toast({ title: "Error submitting vote", description: err?.message || String(err), variant: "destructive" });
     } finally {
@@ -408,6 +424,22 @@ const Dashboard = () => {
               </Button>
             </div>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Vote Receipt Dialog */}
+      <Dialog open={showReceipt} onOpenChange={setShowReceipt}>
+        <DialogContent className="sm:max-w-md">
+          {voteConfirmation && selectedElection && profile && (
+            <VoteReceipt
+              electionTitle={selectedElection.title}
+              candidateName={voteConfirmation.candidateName}
+              partyName={voteConfirmation.partyName}
+              votedAt={voteConfirmation.votedAt}
+              confirmationId={voteConfirmation.confirmationId}
+              voterName={profile.full_name}
+            />
+          )}
         </DialogContent>
       </Dialog>
     </div>
